@@ -206,7 +206,14 @@ def _detect_image(path: str):
 
     out_path = os.path.join(UPLOAD_DIR, "detected.jpg")
     cv2.imwrite(out_path, annotated)
-    return send_file(out_path, mimetype="image/jpeg")
+    
+    # Return JSON with file path instead of binary data
+    message = "Weapon detected in image!" if weapon_found else "No weapon detected in image."
+    return jsonify({
+        "message": message,
+        "output": out_path,
+        "detected": weapon_found
+    })
 
 def _detect_video(path: str):
     cap = cv2.VideoCapture(path)
@@ -236,9 +243,17 @@ def _detect_video(path: str):
     if found:
         _set_detected(True)
         _send_email_async()
-        return jsonify({"message": "Weapon detected in video.", "output": out_path})
+        return jsonify({
+            "message": "Weapon detected in video.",
+            "output": out_path,
+            "detected": True
+        })
     else:
-        return jsonify({"message": "No weapon detected in sampled frames.", "output": out_path})
+        return jsonify({
+            "message": "No weapon detected in sampled frames.",
+            "output": out_path,
+            "detected": False
+        })
 
 # ------------------------------------------------------------------
 # Routes
@@ -250,6 +265,17 @@ def root():
 @app.route("/detection-status", methods=["GET"])
 def detection_status():
     return jsonify({"detected": _get_detected()})
+
+@app.route("/uploads/<filename>")
+def download_file(filename):
+    """Serve processed images/videos from uploads folder"""
+    safe_path = os.path.join(UPLOAD_DIR, filename)
+    # Security: prevent directory traversal
+    if not os.path.abspath(safe_path).startswith(os.path.abspath(UPLOAD_DIR)):
+        return jsonify({"error": "Invalid file path"}), 400
+    if not os.path.exists(safe_path):
+        return jsonify({"error": "File not found"}), 404
+    return send_file(safe_path)
 
 @app.route("/upload", methods=["POST"])
 def upload():
