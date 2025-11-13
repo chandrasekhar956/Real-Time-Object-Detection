@@ -50,9 +50,6 @@ EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER", "")
 ALERT_COOLDOWN_SEC = 30    # seconds between email sends
 VIDEO_SAMPLE_FRAMES = 100  # frames to scan in uploaded videos before stopping
 
-# Weapon keyword list
-WEAPON_KEYWORDS = ["gun", "knife", "weapon", "pistol", "rifle", "revolver"]
-
 # ------------------------------------------------------------------
 # Flask init
 # ------------------------------------------------------------------
