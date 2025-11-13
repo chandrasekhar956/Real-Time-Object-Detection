@@ -14,7 +14,7 @@ const LiveStream: React.FC = () => {
   const videoRef = useRef<HTMLImageElement>(null);
   const statusInterval = useRef<number | null>(null);
   const prevDetectionStatus = useRef<boolean>(false);
-  const { playAlertSound } = useAlertSound();
+  const { playAlertSound, enableAlertSound } = useAlertSound();
 
   // Update stream source when settings change
   useEffect(() => {
@@ -85,6 +85,8 @@ const LiveStream: React.FC = () => {
     if (isStreaming) {
       stopStream();
     } else {
+      // Try to unlock audio on the user gesture that starts streaming
+      enableAlertSound();
       startStream();
     }
   };

@@ -1,18 +1,18 @@
 """
 Weapon Detection Backend
 ------------------------
-Uses YOLOv8n model (auto-downloads if missing).
+Loads a custom model if present; otherwise auto-downloads YOLOv8n and uses it.
 
 Endpoints:
   GET  /                   -> health JSON
   GET  /video              -> webcam MJPEG stream
   GET  /cctv?stream=URL    -> RTSP/IP camera MJPEG stream
   GET  /detection-status   -> {"detected": bool}
-  POST /upload             -> image/video detect; returns annotated image (image) or JSON+video (video)
+  POST /upload             -> image/video detect; returns annotated image (image) or JSON (video)
 
-Detection keywords: ["gun", "knife", "weapon", "pistol", "rifle", "revolver"]
+Detection keywords: "gun", "knife", "weapon" (case-insensitive substring match).
 
-Optional email alert on detection: set EMAIL_* environment variables.
+Optional email alert on detection: fill EMAIL_* values.
 
 Run:
   cd backend
@@ -38,18 +38,22 @@ from ultralytics import YOLO
 # ------------------------------------------------------------------
 # Config
 # ------------------------------------------------------------------
-MODEL_NAME = "yolov8n.pt"             # Ultralytics small model (auto-download)
+CUSTOM_MODEL = r'C:\Users\Chandra Sekhar\OneDrive\Documents\REAL TIME OBJECT DETECTION\backend\runs\detect\train\weights\best.pt'   # your trained weights (optional)
+FALLBACK_MODEL = "yolov8n.pt"         # Ultralytics small model (auto-download)
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# Email alert config via environment variables
-EMAIL_SENDER = os.getenv("EMAIL_SENDER", "")
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")
-EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER", "")
+# Email alert config (leave blank to disable sending)
+EMAIL_SENDER = ""          # "your_email@gmail.com"
+EMAIL_PASSWORD = ""        # Gmail App Password (not your login password)
+EMAIL_RECEIVER = ""        # destination email
 
 ALERT_COOLDOWN_SEC = 30    # seconds between email sends
 VIDEO_SAMPLE_FRAMES = 100  # frames to scan in uploaded videos before stopping
 
+
+# Weapon keyword list
+WEAPON_KEYWORDS = ["pistol", "rifle", "knife", "shotgun", "grenade", "baseball bat"]
 # ------------------------------------------------------------------
 # Flask init
 # ------------------------------------------------------------------
@@ -57,10 +61,28 @@ app = Flask(__name__)
 CORS(app)
 
 # ------------------------------------------------------------------
-# Load YOLO model
+# Model loader w/ fallback
 # ------------------------------------------------------------------
-print(f"[MODEL] Loading YOLO model: {MODEL_NAME}")
-model = YOLO(MODEL_NAME)
+def load_model_with_fallback() -> YOLO:
+    """
+    Try custom model first. If missing or load fails, fallback to YOLOv8n.
+    """
+    # Try custom if exists & non-zero size
+    if os.path.exists(CUSTOM_MODEL) and os.path.getsize(CUSTOM_MODEL) > 0:
+        try:
+            print(f"[MODEL] Loading custom model: {CUSTOM_MODEL}")
+            return YOLO(CUSTOM_MODEL)
+        except Exception as e:
+            print(f"[MODEL] Failed to load custom model: {e}")
+
+    # Fallback
+    print(f"[MODEL] Falling back to {FALLBACK_MODEL} (will auto-download if missing)...")
+    try:
+        return YOLO(FALLBACK_MODEL)
+    except Exception as e:
+        raise RuntimeError(f"Failed to load fallback model '{FALLBACK_MODEL}': {e}")
+
+model = load_model_with_fallback()
 
 # ------------------------------------------------------------------
 # Detection state shared w/ /detection-status
@@ -105,6 +127,9 @@ def _send_email_async():
 # YOLO helpers
 # ------------------------------------------------------------------
 def _weapon_in_results(results) -> bool:
+    """
+    Returns True if any detection label contains our weapon keywords.
+    """
     r = results[0]
     names = model.names
     for b in r.boxes:
@@ -115,6 +140,9 @@ def _weapon_in_results(results) -> bool:
     return False
 
 def _annotate(frame: np.ndarray):
+    """
+    Run YOLO on a BGR frame; return (annotated_frame, weapon_found_bool).
+    """
     results = model(frame)
     weapon_found = _weapon_in_results(results)
     annotated = results[0].plot()
@@ -124,17 +152,23 @@ def _annotate(frame: np.ndarray):
 # Streaming generator
 # ------------------------------------------------------------------
 def _stream_generator(source: Union[int, str]):
+    """
+    MJPEG generator for webcam or RTSP.
+    """
     global _last_alert_time
     cap = cv2.VideoCapture(source)
     if not cap.isOpened():
         print(f"[STREAM] Unable to open source: {source}")
         return
+
     while True:
         ok, frame = cap.read()
         if not ok:
             print("[STREAM] Frame read failed; ending stream.")
             break
+
         annotated, weapon_found = _annotate(frame)
+
         if weapon_found:
             _set_detected(True)
             with _detection_lock:
@@ -143,15 +177,18 @@ def _stream_generator(source: Union[int, str]):
                     _send_email_async()
         else:
             _set_detected(False)
+
         ok_enc, buf = cv2.imencode(".jpg", annotated)
         if not ok_enc:
             continue
+
         yield (
             b"--frame\r\n"
             b"Content-Type: image/jpeg\r\n\r\n" +
             buf.tobytes() +
             b"\r\n"
         )
+
     cap.release()
 
 # ------------------------------------------------------------------
@@ -161,10 +198,12 @@ def _detect_image(path: str):
     img = cv2.imread(path)
     if img is None:
         return jsonify({"error": "Cannot read image."}), 400
+
     annotated, weapon_found = _annotate(img)
     if weapon_found:
         _set_detected(True)
         _send_email_async()
+
     out_path = os.path.join(UPLOAD_DIR, "detected.jpg")
     cv2.imwrite(out_path, annotated)
     return send_file(out_path, mimetype="image/jpeg")
@@ -173,6 +212,7 @@ def _detect_video(path: str):
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
         return jsonify({"error": "Cannot open video."}), 400
+
     found = False
     frames = 0
     out_path = os.path.join(UPLOAD_DIR, "detected.mp4")
@@ -218,8 +258,10 @@ def upload():
     f = request.files["file"]
     if not f.filename:
         return jsonify({"error": "Empty filename"}), 400
+
     save_path = os.path.join(UPLOAD_DIR, f.filename)
     f.save(save_path)
+
     ext = os.path.splitext(f.filename)[1].lower()
     if ext in (".jpg", ".jpeg", ".png", ".bmp", ".webp"):
         return _detect_image(save_path)
@@ -230,6 +272,7 @@ def upload():
 
 @app.route("/video")
 def video():
+    # laptop webcam index 0
     return Response(
         _stream_generator(0),
         mimetype="multipart/x-mixed-replace; boundary=frame",

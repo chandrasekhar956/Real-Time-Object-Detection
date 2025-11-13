@@ -14,7 +14,7 @@ const Upload: React.FC = () => {
     detections?: Array<{ class: string; confidence: number }>;
   } | null>(null);
   
-  const { playAlertSound } = useAlertSound();
+  const { playAlertSound, enableAlertSound } = useAlertSound();
 
   // Supported file types
   const supportedFormats = [
@@ -88,6 +88,8 @@ const Upload: React.FC = () => {
   
   const handleUpload = async () => {
     if (!file) return;
+    // Unlock audio on this user gesture so alert playback is allowed by the browser
+    enableAlertSound();
     
     setStatus('uploading');
     setError(null);
