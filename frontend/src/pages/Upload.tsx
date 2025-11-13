@@ -11,6 +11,7 @@ const Upload: React.FC = () => {
   const [result, setResult] = useState<{
     message: string;
     resultUrl?: string;
+    detected?: boolean;
     detections?: Array<{ class: string; confidence: number }>;
   } | null>(null);
   
@@ -74,7 +75,7 @@ const Upload: React.FC = () => {
   // Handle alert sound when weapon detection status changes
   useEffect(() => {
     // Play sound continuously if there are detections
-    if (result?.detections && result.detections.length > 0) {
+    if (result?.detected) {
       playAlertSound(true);
     } else {
       playAlertSound(false);
@@ -84,7 +85,7 @@ const Upload: React.FC = () => {
     return () => {
       playAlertSound(false);
     };
-  }, [result?.detections, playAlertSound]);
+  }, [result?.detected, playAlertSound]);
   
   const handleUpload = async () => {
     if (!file) return;
@@ -218,22 +219,27 @@ const Upload: React.FC = () => {
               <div className="mt-4 p-4 bg-gray-800 rounded-lg border border-gray-700">
                 <h3 className="font-bold text-lg mb-2">Analysis Results</h3>
                 
-                {result.detections && result.detections.length > 0 ? (
+                {result.detected ? (
                   <div>
                     <div className="mb-3 p-3 bg-red-600/20 border border-red-600 rounded">
                       <p className="font-bold text-red-300">⚠️ Potential threat detected!</p>
                     </div>
                     <div className="space-y-2 mt-3">
-                      <p>Detected objects:</p>
-                      <ul className="space-y-1">
-                        {result.detections.map((detection, idx) => (
-                          <li key={idx} className="flex justify-between items-center p-2 bg-gray-700/50 rounded">
-                            <span className="capitalize">{detection.class}</span>
-                            <span className="text-yellow-300">{(detection.confidence * 100).toFixed(1)}%</span>
-                          </li>
-                        ))}
-                      </ul>
+                      <p className="text-sm text-gray-300">{result.message}</p>
                     </div>
+                    {result.detections && result.detections.length > 0 && (
+                      <div className="space-y-2 mt-3">
+                        <p>Detected objects:</p>
+                        <ul className="space-y-1">
+                          {result.detections.map((detection, idx) => (
+                            <li key={idx} className="flex justify-between items-center p-2 bg-gray-700/50 rounded">
+                              <span className="capitalize">{detection.class}</span>
+                              <span className="text-yellow-300">{(detection.confidence * 100).toFixed(1)}%</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="p-3 bg-green-600/20 border border-green-600 rounded">

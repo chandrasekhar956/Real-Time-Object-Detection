@@ -60,6 +60,9 @@ WEAPON_KEYWORDS = ["pistol", "rifle", "knife", "shotgun", "grenade", "baseball b
 app = Flask(__name__)
 CORS(app)
 
+# Minimum confidence to consider a detection valid
+CONFIDENCE_THRESHOLD = 0.25
+
 # ------------------------------------------------------------------
 # Model loader w/ fallback
 # ------------------------------------------------------------------
@@ -139,14 +142,44 @@ def _weapon_in_results(results) -> bool:
             return True
     return False
 
+def _extract_detections(results, conf_thresh: float = CONFIDENCE_THRESHOLD):
+    """Return list of detections with class name and confidence (filtered by threshold)."""
+    r = results[0]
+    names = model.names
+    detections = []
+    for b in r.boxes:
+        try:
+            cls = int(b.cls[0])
+        except Exception:
+            cls = int(b.cls)
+        try:
+            conf = float(b.conf[0])
+        except Exception:
+            conf = float(getattr(b, "conf", 0.0))
+        label = names.get(cls, "").lower()
+        detections.append({"class": label, "confidence": conf})
+    # filter by confidence
+    return [d for d in detections if d["confidence"] >= conf_thresh]
+
+
+def _weapon_in_results(results, conf_thresh: float = CONFIDENCE_THRESHOLD) -> bool:
+    """Returns True if any detection label contains our weapon keywords (above conf_thresh)."""
+    detections = _extract_detections(results, conf_thresh)
+    for d in detections:
+        if any(kw in d["class"] for kw in WEAPON_KEYWORDS):
+            return True
+    return False
+
+
 def _annotate(frame: np.ndarray):
     """
-    Run YOLO on a BGR frame; return (annotated_frame, weapon_found_bool).
+    Run YOLO on a BGR frame; return (annotated_frame, weapon_found_bool, detections_list).
     """
     results = model(frame)
-    weapon_found = _weapon_in_results(results)
+    detections = _extract_detections(results)
+    weapon_found = any(any(kw in d["class"] for kw in WEAPON_KEYWORDS) for d in detections)
     annotated = results[0].plot()
-    return annotated, weapon_found
+    return annotated, weapon_found, detections
 
 # ------------------------------------------------------------------
 # Streaming generator
@@ -167,7 +200,7 @@ def _stream_generator(source: Union[int, str]):
             print("[STREAM] Frame read failed; ending stream.")
             break
 
-        annotated, weapon_found = _annotate(frame)
+        annotated, weapon_found, detections = _annotate(frame)
 
         if weapon_found:
             _set_detected(True)
@@ -199,7 +232,7 @@ def _detect_image(path: str):
     if img is None:
         return jsonify({"error": "Cannot read image."}), 400
 
-    annotated, weapon_found = _annotate(img)
+    annotated, weapon_found, detections = _annotate(img)
     if weapon_found:
         _set_detected(True)
         _send_email_async()
@@ -212,7 +245,8 @@ def _detect_image(path: str):
     return jsonify({
         "message": message,
         "output": out_path,
-        "detected": weapon_found
+        "detected": weapon_found,
+        "detections": detections
     })
 
 def _detect_video(path: str):
@@ -232,7 +266,7 @@ def _detect_video(path: str):
         ok, frame = cap.read()
         if not ok:
             break
-        annotated, weapon_found = _annotate(frame)
+        annotated, weapon_found, detections = _annotate(frame)
         writer.write(annotated)
         if weapon_found:
             found = True
@@ -246,7 +280,8 @@ def _detect_video(path: str):
         return jsonify({
             "message": "Weapon detected in video.",
             "output": out_path,
-            "detected": True
+            "detected": True,
+            "detections": detections
         })
     else:
         return jsonify({

@@ -5,7 +5,7 @@ const API_BASE = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
  * @param file The file to upload (image or video)
  * @returns Detection results
  */
-export async function uploadFile(file: File): Promise<{message: string; resultUrl?: string; detections?: any[]}> {
+export async function uploadFile(file: File): Promise<{message: string; resultUrl?: string; detections?: any[]; detected?: boolean}> {
   const formData = new FormData();
   formData.append("file", file);
 
@@ -19,7 +19,16 @@ export async function uploadFile(file: File): Promise<{message: string; resultUr
     throw new Error(error.message || 'Upload failed');
   }
 
-  return response.json();
+  const data = await response.json();
+  
+  // Construct full URL for the processed file if output path is provided
+  if (data.output) {
+    // Extract filename from path (e.g., "uploads/detected.jpg" -> "detected.jpg")
+    const filename = data.output.split(/[\\/]/).pop();
+    data.resultUrl = `/uploads/${filename}`;
+  }
+  
+  return data;
 }
 
 /**
