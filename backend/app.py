@@ -38,7 +38,7 @@ from ultralytics import YOLO
 # ------------------------------------------------------------------
 # Config
 # ------------------------------------------------------------------
-CUSTOM_MODEL = r'C:\Users\Chandra Sekhar\OneDrive\Documents\REAL TIME OBJECT DETECTION\backend\runs\detect\train\weights\best.pt'   # your trained weights (optional)
+CUSTOM_MODEL ='weights/best.pt'   # your trained weights (optional)
 FALLBACK_MODEL = "yolov8n.pt"         # Ultralytics small model (auto-download)
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
